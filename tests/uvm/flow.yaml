@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://dv-flow.github.io/flow.dv.schema.json
+#
+# The back-to-back UVM bench (design.md §5): the VIP's tx agent -> the kit's
+# tx transactor -> one line -> the kit's rx transactor -> the VIP's rx
+# agent, with the kit's monitor transactor and the VIP's monitor agent on
+# the line. env/ (the UVM env), tests/ (the cases), tb/ (HDL and HVL tops).
+#
+#   dfm run tests                        # every case
+#   dfm run tests --tests errors         # one case
+#   dfm run smoke
+fragment:
+  name: bench
+
+  tasks:
+  - name: uvm-env
+    uses: project.dv.uvm.utils.env-base
+    needs:
+    - vip-uvm-hvlsrc
+    - org.fwvip.core.core-uvm-pkg
+    - org.fwvip.core.clock-reset-xtor
+    - "flags-comp-${{ build }}"
+    with:
+      env_include: [fwvip_uart_b2b_env_pkg.sv]
+
+  - name: img
+    uses: project.dv.uvm.utils.tb-img
+    needs: [uvm-env, flags-img]
+    with:
+      tb_include: [fwvip_uart_hdl_top.sv, fwvip_uart_hvl_top.sv]
+      top: [fwvip_uart_hvl_top]
+
+  # One cell per case. `name` is what `--tests` selects.
+  - name: uvm-tests
+    strategy:
+      matrix:
+        case:
+        - { name: smoke,        seq: fwvip_uart_smoke_seq,        test: fwvip_uart_b2b_test }
+        - { name: rand_traffic, seq: fwvip_uart_rand_traffic_seq, test: fwvip_uart_b2b_test }
+        - { name: cfg_sweep,    seq: fwvip_uart_cfg_sweep_seq,    test: fwvip_uart_b2b_test }
+        - { name: break,        seq: fwvip_uart_break_seq,        test: fwvip_uart_b2b_test }
+        - { name: errors,       seq: fwvip_uart_errors_seq,       test: fwvip_uart_b2b_test }
+        - { name: baud_offset,  seq: fwvip_uart_baud_offset_seq,  test: fwvip_uart_b2b_test }
+        - { name: glitch,       seq: fwvip_uart_glitch_seq,       test: fwvip_uart_b2b_test }
+        - { name: mon_teeth,    seq: fwvip_uart_mon_teeth_seq,    test: fwvip_uart_b2b_test }
+    body:
+    - name: "${{ this.case.name }}"
+      uses: hdlsim.vlt.SimUVMCase
+      needs: [img, "flags-run-${{ build }}"]
+      with:
+        name: "${{ this.case.name }}"
+        testname: "${{ this.case.test }}"
+        plusargs: ["SEQ=${{ this.case.seq }}"]
